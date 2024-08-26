@@ -21,6 +21,7 @@ FFMPEG_PATH = os.path.join(THIRD_PARTY_PATH, 'ffmpeg')
 LIBVPX_PATH = os.path.join(THIRD_PARTY_PATH, 'libvpx')
 LIBVPX_SOURCE_PATH = os.path.join(LIBVPX_PATH, 'source/libvpx')
 WEBRTC_OVERRIDES_PATH = os.path.join(THIRD_PARTY_PATH, 'webrtc_overrides')
+WEBRTC_PATH = os.path.join(THIRD_PARTY_PATH, 'webrtc')
 BUILD_PATH = os.path.join(HOME_PATH, 'build')
 CONFIG_PATH = os.path.join(BUILD_PATH, 'config')
 TOOL_PATH = os.path.join(HOME_PATH, 'tools')
@@ -55,11 +56,13 @@ patchList = [
     ('0022-Apply-Wno-shadow-for-clang-only.patch', THIRD_PARTY_PATH),
     ('0023-Fix-FFMPEG-config-for-MSVC-build.patch', FFMPEG_PATH),
     ('0024-Getting-install-build-deps-to-work-on-Ubuntu-22.04-L.patch', BUILD_PATH),
-    ('0025-Allow-ffmpeg_branding-OWT.patch', FFMPEG_PATH)
+    ('0025-Allow-ffmpeg_branding-OWT.patch', FFMPEG_PATH),
+    ('1000-webrtc_add_debug_log.patch', WEBRTC_PATH),
 ]
 
 def _patch(ignoreFailures=False):
     for patchName, applyPath in patchList:
+        print("Applying patch %s to %s" % (patchName, applyPath))
         if (subprocess.call(['git', 'am', os.path.join(PATCH_PATH, patchName)],
                             shell=useShell, cwd=applyPath)) != 0:
             if (ignoreFailures):

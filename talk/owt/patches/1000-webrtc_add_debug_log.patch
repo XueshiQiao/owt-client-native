@@ -1,0 +1,307 @@
+From c5af5120dfdfe3fd8cc12baf1be382da26db2ea6 Mon Sep 17 00:00:00 2001
+From: XueshiQiao <qiaoxueshi@gmail.com>
+Date: Mon, 26 Aug 2024 16:23:46 +0800
+Subject: [PATCH] Add more logs
+
+---
+ call/rtp_video_sender.cc                    |  3 +++
+ modules/rtp_rtcp/source/rtp_format.cc       |  8 +++++++
+ modules/rtp_rtcp/source/rtp_format_h264.cc  | 16 +++++++++++++-
+ modules/rtp_rtcp/source/rtp_sender_video.cc |  9 ++++++++
+ pc/srtp_session.cc                          |  3 ++-
+ pc/srtp_transport.cc                        |  8 +++++++
+ video/video_send_stream_impl.cc             |  1 +
+ video/video_stream_encoder.cc               | 23 ++++++++++++++++++---
+ 8 files changed, 66 insertions(+), 5 deletions(-)
+
+diff --git a/call/rtp_video_sender.cc b/call/rtp_video_sender.cc
+index 805f5ec781..19a8af3d42 100644
+--- a/call/rtp_video_sender.cc
++++ b/call/rtp_video_sender.cc
+@@ -547,6 +547,9 @@ bool RtpVideoSender::IsActiveLocked() {
+ EncodedImageCallback::Result RtpVideoSender::OnEncodedImage(
+     const EncodedImage& encoded_image,
+     const CodecSpecificInfo* codec_specific_info) {
++  RTC_LOG(LS_INFO) << "RtpVideoSender::OnEncodedImage call start, size: "
++                   << encoded_image.size()
++                  << ", is key: " << (encoded_image._frameType == VideoFrameType::kVideoFrameKey);
+   fec_controller_->UpdateWithEncodedData(encoded_image.size(),
+                                          encoded_image._frameType);
+   MutexLock lock(&mutex_);
+diff --git a/modules/rtp_rtcp/source/rtp_format.cc b/modules/rtp_rtcp/source/rtp_format.cc
+index d2bc2e535b..fb4a2a683e 100644
+--- a/modules/rtp_rtcp/source/rtp_format.cc
++++ b/modules/rtp_rtcp/source/rtp_format.cc
+@@ -24,6 +24,7 @@
+ #include "modules/video_coding/codecs/vp8/include/vp8_globals.h"
+ #include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
+ #include "rtc_base/checks.h"
++#include "rtc_base/logging.h"
+ 
+ namespace webrtc {
+ 
+@@ -34,6 +35,13 @@ std::unique_ptr<RtpPacketizer> RtpPacketizer::Create(
+     // Codec-specific details.
+     const RTPVideoHeader& rtp_video_header,
+     bool end_of_frame) {
++
++  RTC_LOG(LS_INFO) << "===== RtpPacketizer::Create ===== payload type: "
++                   << payload.size() << " limits: " << limits.max_payload_len
++                   << " rtp_video_header.frame_type: "
++                   << rtp_video_header.frame_type
++                   << " rtp_video_header.is_last_frame_in_picture: "
++                    << rtp_video_header.is_last_frame_in_picture << " end_of_frame: " << end_of_frame;
+   if (!type) {
+     // Use raw packetizer.
+     return std::make_unique<RtpPacketizerGeneric>(payload, limits);
+diff --git a/modules/rtp_rtcp/source/rtp_format_h264.cc b/modules/rtp_rtcp/source/rtp_format_h264.cc
+index 68743adf39..9103214f6f 100644
+--- a/modules/rtp_rtcp/source/rtp_format_h264.cc
++++ b/modules/rtp_rtcp/source/rtp_format_h264.cc
+@@ -12,6 +12,7 @@
+ 
+ #include <string.h>
+ 
++#include <cinttypes>
+ #include <cstddef>
+ #include <cstdint>
+ #include <iterator>
+@@ -48,12 +49,20 @@ RtpPacketizerH264::RtpPacketizerH264(rtc::ArrayView<const uint8_t> payload,
+   RTC_CHECK(packetization_mode == H264PacketizationMode::NonInterleaved ||
+             packetization_mode == H264PacketizationMode::SingleNalUnit);
+ 
++  // packetization_mode = NonInterleaved = 0,  // Mode 1 - STAP-A, FU-A is allowed
++
++
+   for (const auto& nalu :
+        H264::FindNaluIndices(payload.data(), payload.size())) {
+     input_fragments_.push_back(
+         payload.subview(nalu.payload_start_offset, nalu.payload_size));
+   }
+ 
++  RTC_LOG(LS_INFO) << "RtpPacketizerH264 payload size: " << payload.size()
++                   << " limits.max_payload_len: " << limits.max_payload_len
++                   << " packetization_mode: " << packetization_mode
++                   << " end_of_frame: " << end_of_frame << ", input_fragments_ size: " << input_fragments_.size();
++
+   if (!GeneratePackets(packetization_mode)) {
+     // If failed to generate all the packets, discard already generated
+     // packets in case the caller would ignore return value and still try to
+@@ -62,6 +71,8 @@ RtpPacketizerH264::RtpPacketizerH264(rtc::ArrayView<const uint8_t> payload,
+     while (!packets_.empty()) {
+       packets_.pop();
+     }
++  } else {
++    RTC_LOG(LS_ERROR) << "RtpPacketizerH264 GeneratePackets failed";
+   }
+ }
+ 
+@@ -76,6 +87,7 @@ bool RtpPacketizerH264::GeneratePackets(
+   for (size_t i = 0; i < input_fragments_.size();) {
+     switch (packetization_mode) {
+       case H264PacketizationMode::SingleNalUnit:
++        RTC_LOG(LS_ERROR) << "RtpPacketizerH264 GeneratePackets failed SingleNalUnit";
+         if (!PacketizeSingleNalu(i))
+           return false;
+         ++i;
+@@ -91,8 +103,10 @@ bool RtpPacketizerH264::GeneratePackets(
+           single_packet_capacity -= limits_.last_packet_reduction_len;
+ 
+         if (fragment_len > single_packet_capacity) {
+-          if (!PacketizeFuA(i))
++          if (!PacketizeFuA(i)) {
++            RTC_LOG(LS_ERROR) << "RtpPacketizerH264 GeneratePackets failed PacketizeFuA";
+             return false;
++          }
+           ++i;
+         } else {
+           i = PacketizeStapA(i);
+diff --git a/modules/rtp_rtcp/source/rtp_sender_video.cc b/modules/rtp_rtcp/source/rtp_sender_video.cc
+index 3da3ec2136..24f6241392 100644
+--- a/modules/rtp_rtcp/source/rtp_sender_video.cc
++++ b/modules/rtp_rtcp/source/rtp_sender_video.cc
+@@ -488,6 +488,13 @@ bool RTPSenderVideo::SendVideo(
+                           FrameTypeToString(video_header.frame_type));
+   RTC_CHECK_RUNS_SERIALIZED(&send_checker_);
+ 
++  RTC_LOG(LS_INFO) << "RTPSendVideo::SendVideo: " << payload.size()
++                   << " bytes, codec_type: " << codec_type.has_value() << ", value: " << codec_type.value_or(VideoCodecType::kVideoCodecGeneric)
++                   << ", rtp_timestamp: " << rtp_timestamp
++                   << ", capture_time_ms: " << capture_time_ms
++                   << ", expected_retransmission_time_ms: "
++                   << expected_retransmission_time_ms.value_or(-1);
++
+   if (video_header.frame_type == VideoFrameType::kEmptyFrame)
+     return true;
+ 
+@@ -663,6 +670,7 @@ bool RTPSenderVideo::SendVideo(
+            "one is required since require_frame_encryptor is set";
+   }
+ 
++  RTC_LOG(LS_INFO) << "RTPSendVideo::SendVideo call packetizer";
+   std::unique_ptr<RtpPacketizer> packetizer =
+       RtpPacketizer::Create(codec_type, payload, limits, video_header, frame_completed);
+ 
+@@ -790,6 +798,7 @@ bool RTPSenderVideo::SendEncodedImage(
+         payload_type, codec_type, rtp_timestamp, encoded_image, video_header,
+         expected_retransmission_time_ms);
+   }
++  RTC_LOG(LS_INFO) << "RTPSenderVideo::SendEncodedImage, size: " << encoded_image.size() << ", timestamp: " << rtp_timestamp;
+   return SendVideo(payload_type, codec_type, rtp_timestamp,
+                    encoded_image.capture_time_ms_, encoded_image, video_header,
+                    expected_retransmission_time_ms);
+diff --git a/pc/srtp_session.cc b/pc/srtp_session.cc
+index 7d1aaf2d65..1f2b776bf0 100644
+--- a/pc/srtp_session.cc
++++ b/pc/srtp_session.cc
+@@ -121,6 +121,7 @@ SrtpSession::SrtpSession() {}
+ 
+ SrtpSession::SrtpSession(const webrtc::FieldTrialsView& field_trials) {
+   dump_plain_rtp_ = field_trials.IsEnabled("WebRTC-Debugging-RtpDump");
++  // dump_plain_rtp_ = true;//field_trials.IsEnabled("WebRTC-Debugging-RtpDump");
+ }
+ 
+ SrtpSession::~SrtpSession() {
+@@ -503,7 +504,7 @@ void SrtpSession::DumpPacket(const void* buf, int len, bool outbound) {
+   int64_t minutes = (time_of_day / (60 * 1000)) % 60;
+   int64_t seconds = (time_of_day / 1000) % 60;
+   int64_t millis = time_of_day % 1000;
+-  RTC_LOG(LS_VERBOSE) << "\n"
++  RTC_LOG(LS_INFO) << "\n"
+                       << (outbound ? "O" : "I") << " " << std::setfill('0')
+                       << std::setw(2) << hours << ":" << std::setfill('0')
+                       << std::setw(2) << minutes << ":" << std::setfill('0')
+diff --git a/pc/srtp_transport.cc b/pc/srtp_transport.cc
+index 838040876c..f88a34ddfc 100644
+--- a/pc/srtp_transport.cc
++++ b/pc/srtp_transport.cc
+@@ -120,6 +120,14 @@ RTCError SrtpTransport::SetSrtpReceiveKey(const cricket::CryptoParams& params) {
+ bool SrtpTransport::SendRtpPacket(rtc::CopyOnWriteBuffer* packet,
+                                   const rtc::PacketOptions& options,
+                                   int flags) {
++#if !defined(ENABLE_EXTERNAL_AUTH)
++  bool enable_external_auth = false;
++#else
++  bool enable_external_auth = true;
++#endif
++  RTC_LOG(LS_ERROR) << "SrtpTransport::SendRtpPacket, packet size:"
++                    << rtc::checked_cast<int>(packet->size())
++                    << ", is_srtp_active:" << IsSrtpActive() << ", enable_external_auth:" << enable_external_auth;
+   if (!IsSrtpActive()) {
+     RTC_LOG(LS_ERROR)
+         << "Failed to send the packet because SRTP transport is inactive.";
+diff --git a/video/video_send_stream_impl.cc b/video/video_send_stream_impl.cc
+index a9e2544011..67fc418d34 100644
+--- a/video/video_send_stream_impl.cc
++++ b/video/video_send_stream_impl.cc
+@@ -564,6 +564,7 @@ EncodedImageCallback::Result VideoSendStreamImpl::OnEncodedImage(
+   }
+ 
+   EncodedImageCallback::Result result(EncodedImageCallback::Result::OK);
++  RTC_LOG(LS_INFO) << "VideoSendStreamImpl::OnEncodedImage size:" << encoded_image.size();
+   result =
+       rtp_video_sender_->OnEncodedImage(encoded_image, codec_specific_info);
+   // Check if there's a throttled VideoBitrateAllocation that we should try
+diff --git a/video/video_stream_encoder.cc b/video/video_stream_encoder.cc
+index 21603b522c..c7089cfe84 100644
+--- a/video/video_stream_encoder.cc
++++ b/video/video_stream_encoder.cc
+@@ -938,6 +938,7 @@ void VideoStreamEncoder::ReconfigureEncoder() {
+     // attempt to create another instance will fail if encoder factory
+     // supports only single instance of encoder of given type.
+     encoder_.reset();
++    RTC_LOG(LS_INFO) << "VideoStreamEncoder::ReconfigureEncoder call settings_.encoder_factory->CreateVideoEncoder";
+ 
+     encoder_ = settings_.encoder_factory->CreateVideoEncoder(
+         encoder_config_.video_format);
+@@ -1443,6 +1444,11 @@ void VideoStreamEncoder::OnFrame(Timestamp post_time,
+                                  const VideoFrame& video_frame) {
+   RTC_DCHECK_RUN_ON(&encoder_queue_);
+   VideoFrame incoming_frame = video_frame;
++  RTC_LOG(LS_INFO) << "VideoStreamEncoder::OnFrame OnFrame: " << ", timestamp "
++                   << incoming_frame.timestamp()
++                   << ", frames_scheduled_for_processing: "
++                   << frames_scheduled_for_processing
++                    << ", webrtc::field_trial::IsEnabled(OWT-LowLatencyMode): " << webrtc::field_trial::IsEnabled("OWT-LowLatencyMode") ;
+ 
+   // In some cases, e.g., when the frame from decoder is fed to encoder,
+   // the timestamp may be set to the future. As the encoding pipeline assumes
+@@ -1525,7 +1531,7 @@ void VideoStreamEncoder::OnFrame(Timestamp post_time,
+     accumulated_update_rect_.Union(incoming_frame.update_rect());
+     accumulated_update_rect_is_valid_ &= incoming_frame.has_update_rect();
+   }
+-  if (log_stats) {
++  if (log_stats || true) {
+     RTC_LOG(LS_INFO) << "Number of frames: captured " << captured_frame_count_
+                      << ", dropped (due to congestion window pushback) "
+                      << dropped_frame_cwnd_pushback_count_
+@@ -1700,6 +1706,7 @@ void VideoStreamEncoder::SetEncoderRates(
+ void VideoStreamEncoder::MaybeEncodeVideoFrame(const VideoFrame& video_frame,
+                                                int64_t time_when_posted_us) {
+   RTC_DCHECK_RUN_ON(&encoder_queue_);
++  RTC_LOG(LS_INFO) << "VideoStreamEncoder::MaybeEncodeVideoFrame,  frame size:" << video_frame.size();
+   input_state_provider_.OnFrameSizeObserved(video_frame.size());
+ 
+   if (!last_frame_info_ || video_frame.width() != last_frame_info_->width ||
+@@ -1790,6 +1797,7 @@ void VideoStreamEncoder::MaybeEncodeVideoFrame(const VideoFrame& video_frame,
+   stream_resource_manager_.OnMaybeEncodeFrame();
+ 
+   if (EncoderPaused()) {
++    RTC_LOG(LS_INFO) << "Dropping frame. EncoderPaused.";
+     // Storing references to a native buffer risks blocking frame capture.
+     if (video_frame.video_frame_buffer()->type() !=
+         VideoFrameBuffer::Type::kNative) {
+@@ -1818,10 +1826,11 @@ void VideoStreamEncoder::MaybeEncodeVideoFrame(const VideoFrame& video_frame,
+       !force_disable_frame_dropper_ &&
+       !encoder_info_.has_trusted_rate_controller;
+   frame_dropper_.Enable(frame_dropping_enabled);
++  RTC_LOG(LS_INFO) << "frame_dropping_enabled: " << frame_dropping_enabled;
+   // For low latency mode we don't drop frame
+   if (frame_dropping_enabled && frame_dropper_.DropFrame() &&
+       !field_trial::IsEnabled("OWT-LowLatencyMode")) {
+-    RTC_LOG(LS_VERBOSE)
++    RTC_LOG(LS_INFO)
+         << "Drop Frame: "
+            "target bitrate "
+         << (last_encoder_rate_settings_
+@@ -1844,6 +1853,9 @@ void VideoStreamEncoder::EncodeVideoFrame(const VideoFrame& video_frame,
+   RTC_LOG(LS_VERBOSE) << __func__ << " posted " << time_when_posted_us
+                       << " ntp time " << video_frame.ntp_time_ms();
+ 
++  RTC_LOG(LS_INFO) << "VideoStreamEncoder::EncodeVideoFrame, start, frame.timestamp" << video_frame.timestamp();
++
++
+   // If the encoder fail we can't continue to encode frames. When this happens
+   // the WebrtcVideoSender is notified and the whole VideoSendStream is
+   // recreated.
+@@ -1978,6 +1990,9 @@ void VideoStreamEncoder::EncodeVideoFrame(const VideoFrame& video_frame,
+ 
+   frame_encode_metadata_writer_.OnEncodeStarted(out_frame);
+ 
++  RTC_LOG(LS_INFO) << "VideoStreamEncoder::EncodeVideoFrame, will call Encode frame: " << out_frame.width() << "x"
++                   << out_frame.height() << ", timestamp "
++                   << out_frame.timestamp();
+   const int32_t encode_status = encoder_->Encode(out_frame, &next_frame_types_);
+   was_encode_called_since_last_initialization_ = true;
+ 
+@@ -2136,6 +2151,8 @@ EncodedImageCallback::Result VideoStreamEncoder::OnEncodedImage(
+   // running in parallel on different threads.
+   encoder_stats_observer_->OnSendEncodedImage(image_copy, codec_specific_info);
+ 
++  RTC_LOG(LS_INFO) << "VideoStreamEncoder::OnEncodedImage size:" << image_copy.size();
++
+   EncodedImageCallback::Result result =
+       sink_->OnEncodedImage(image_copy, codec_specific_info);
+ 
+@@ -2255,7 +2272,7 @@ void VideoStreamEncoder::OnBitrateUpdated(DataRate target_bitrate,
+ 
+   RTC_DCHECK(sink_) << "sink_ must be set before the encoder is active.";
+ 
+-  RTC_LOG(LS_VERBOSE) << "OnBitrateUpdated, bitrate " << target_bitrate.bps()
++  RTC_LOG(LS_INFO) << "OnBitrateUpdated, bitrate " << target_bitrate.bps()
+                       << " stable bitrate = " << stable_target_bitrate.bps()
+                       << " link allocation bitrate = " << link_allocation.bps()
+                       << " packet loss " << static_cast<int>(fraction_lost)
+-- 
+2.25.1
+
