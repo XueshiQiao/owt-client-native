@@ -11,6 +11,7 @@
 #include "talk/owt/sdk/base/codecutils.h"
 #include "talk/owt/sdk/base/customizedvideoencoderproxy.h"
 #include "talk/owt/sdk/base/encodedvideoencoderfactory.h"
+#include "webrtc/rtc_base/logging.h"
 
 namespace owt {
 namespace base {
@@ -28,6 +29,7 @@ EncodedVideoEncoderFactory::CreateVideoEncoder(
       || absl::EqualsIgnoreCase(format.name, cricket::kH265CodecName)
 #endif
   ) {
+    RTC_LOG(LS_INFO) << "EncodedVideoEncoderFactory::CreateVideoEncoder Creating encoder for " << format.name;
     return CustomizedVideoEncoderProxy::Create();
   }
   return nullptr;

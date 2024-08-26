@@ -369,6 +369,9 @@ int32_t CustomizedVideoEncoderProxy::Encode(
     }
   }
 #endif
+  RTC_LOG(LS_INFO) << "CustomizedVideoEncoderProxy::Encode Encoded frame size: " << data_size
+                   << " frame type: " << encoded_frame._frameType
+                   << " codec type: " << codec_type_;
   const auto result = callback_->OnEncodedImage(encoded_frame, &info);
   if (result.error != webrtc::EncodedImageCallback::Result::Error::OK) {
     RTC_LOG(LS_ERROR) << "Deliver encoded frame callback failed: "

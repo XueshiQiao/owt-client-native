@@ -4,6 +4,7 @@
 #include "talk/owt/sdk/include/cpp/owt/conference/conferenceclient.h"
 #include <algorithm>
 #include <string>
+#include <iostream>
 #include "talk/owt/sdk/base/mediautils.h"
 #include "talk/owt/sdk/base/stringutils.h"
 #include "talk/owt/sdk/conference/conferencepeerconnectionchannel.h"
@@ -185,6 +186,8 @@ ConferenceClient::ConferenceClient(
           "ConferenceClientEventQueue",
           webrtc::TaskQueueFactory::Priority::NORMAL));
   signaling_channel_->AddObserver(*this);
+  RTC_LOG(LS_ERROR) << "OwtRoom::create a Conference Client";
+  std::cout << "OwtRoom::create a Conference Client" << std::endl;
 #ifdef OWT_ENABLE_QUIC
   // Quic transport client will be created when we join the meeting.
   web_transport_channel_connected_ = false;
@@ -375,6 +378,8 @@ void ConferenceClient::Join(
     const std::map<std::string, std::string>& query,
     std::function<void(std::shared_ptr<ConferenceInfo>)> on_success,
     std::function<void(std::unique_ptr<Exception>)> on_failure) {
+  RTC_LOG(LS_ERROR) << "OwtRoom::ConferenceClient::Join with token: " << token;
+  std::cout << "OwtRoom::ConferenceClient::Join with token: " << token << std::endl;
   if (signaling_channel_connected_) {
     if (on_failure != nullptr) {
       event_queue_->PostTask([on_failure]() {

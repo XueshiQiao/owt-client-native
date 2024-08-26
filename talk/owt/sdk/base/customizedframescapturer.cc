@@ -133,7 +133,7 @@ CustomizedFramesCapturer::CustomizedFramesCapturer(
   } else {
     encoded_stream_provider_wrapper_ = nullptr;
   }
-  encoder_event_callback_ = nullptr;	  
+  encoder_event_callback_ = nullptr;
 }
 CustomizedFramesCapturer::~CustomizedFramesCapturer() {
   DeRegisterCaptureDataCallback();
@@ -275,6 +275,11 @@ void CustomizedFramesCapturer::OnStreamProviderFrame(
   }
   uint8_t* frame_buffer = new uint8_t[buffer.size()];
   std::copy(buffer.begin(), buffer.end(), frame_buffer);
+
+
+  RTC_LOG(LS_INFO) << "CustomizedFramesCapturer received encoded frame, size: "
+                   << buffer.size() << ", timestamp: " << meta_data.capture_timestamp
+                   << ", is_keyframe: " << meta_data.is_keyframe;
 
   encoder_context->buffer_ = frame_buffer;
   encoder_context->buffer_length_ = buffer.size();
